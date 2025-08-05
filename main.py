@@ -46,9 +46,17 @@ def main():
                 project_key = entities.get("project_key")
                 summary = entities.get("summary")
                 issue_type = entities.get("issue_type", "Story") # Default to Story if not specified
+                description = entities.get("description", "") # Get description from parsed data
+
                 if project_key and summary:
                     print(f"Attempting to create {issue_type} '{summary}' in project '{project_key}'...")
-                    jira_service.create_issue(project_key, summary, f"Created via NLP command: '{command}'", issue_type)
+                    # CORRECTED: Only pass the extracted description.
+                    jira_service.create_issue(
+                        project_key,
+                        summary,
+                        description, # Pass only the description text
+                        issue_type
+                    )
                 else:
                     print("Error: For 'create' command, please specify both a 'project' and a 'summary'.")
                     print("Example: `create a story called 'Setup CI/CD' in project DEVOPS`")
