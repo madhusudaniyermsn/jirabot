@@ -17,3 +17,5 @@ transition AIK-7 to In Progress
 modify AIK-7 summary to 'Improved automated Jira bot'
 
 modify AIK-7 description to 'The bot now supports a wider range of commands.'
+JIRA_API_TOKEN = "ATATT3xFfGF0oK-uTcKL1CswpMIPbJnW8xXeDViQaAfgpHLcNkohkTUDc07lTdQqaCNmLKjoep_cJiqHfWECWlPtlPox-5EpU4yq0tgOuz_I1OA5agEmaHwD_FVVRZm-f77qEpZuAExI_Jt3o1k3LiPMdY_HpbPOk0Cn9DH-1mt5cB1xsGtXJwU=E8DC33B0"        # Your generated Jira API token
+    
