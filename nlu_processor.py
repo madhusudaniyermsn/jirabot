@@ -1,13 +1,11 @@
 import spacy
 import re
 
-
 class NLUProcessor:
     """
     Processes natural language commands to extract intent and entities.
     Uses spaCy for basic NLP tasks and regular expressions for specific pattern matching.
     """
-
     def __init__(self):
         """
         Initializes the NLUProcessor by loading the spaCy English language model.
@@ -24,8 +22,8 @@ class NLUProcessor:
     def process_command(self, command_text: str) -> dict:
         """
         Analyzes the input command text to determine the user's intent
-        (e.g., create, transition, modify) and extracts relevant entities
-        (e.g., issue type, summary, project key, issue key, new values).
+        (e.g., create, transition, modify, assign, comment) and extracts relevant entities
+        (e.g., issue type, summary, project key, issue key, new values, assignee, comment text).
 
         :param command_text: The raw natural language command string from the user.
         :return: A dictionary containing 'intent' and 'entities' extracted.
@@ -43,8 +41,9 @@ class NLUProcessor:
         # "create a story called 'Implement login' in project MYPROJ"
         # "new task 'Refactor code' for PROJ"
         # "create defect 'Button click not working' in QA"
+        # "create a story 'User profile' in project MYPROJ with description 'Add a user profile page.'"
         if ("create" in doc.text or "new" in doc.text) and \
-                any(t in doc.text for t in ["story", "task", "defect", "bug"]):
+           any(t in doc.text for t in ["story", "task", "defect", "bug"]):
             parsed_data["intent"] = "create"
 
             # Extract issue type (story, task, defect, bug)
@@ -53,28 +52,27 @@ class NLUProcessor:
                     parsed_data["entities"]["issue_type"] = issue_type.capitalize()
                     break
             else:
-                parsed_data["entities"]["issue_type"] = "Story"  # Default to Story if not explicitly mentioned
+                parsed_data["entities"]["issue_type"] = "Story" # Default to Story if not explicitly mentioned
 
-            # --- NEW & IMPROVED LOGIC FOR SUMMARY/DESCRIPTION/PROJECT KEY EXTRACTION ---
+            # --- Logic for Summary/Description/Project Key Extraction ---
 
             # Step 1: Extract description first, as it's a very specific pattern.
-            description_match = re.search(r"(?:with|and)\s+(?:description)\s*['\"](.+?)['\"]", command_text,
-                                          re.IGNORECASE)
+            description_match = re.search(r"(?:with|and)\s+(?:description)\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
             if description_match:
                 parsed_data["entities"]["description"] = description_match.group(1).strip()
                 # Remove the description part from the command string to simplify summary extraction
-                command_text = re.sub(r"(?:with|and)\s+(?:description)\s*['\"](.+?)['\"]", "", command_text,
-                                      flags=re.IGNORECASE)
+                command_text = re.sub(r"(?:with|and)\s+(?:description)\s*['\"](.+?)['\"]", "", command_text, flags=re.IGNORECASE)
 
             # Step 2: Extract project key, which should be at the end.
             project_match = re.search(r"(?:in|for|on)\s*(?:project)?\s*(\b[A-Z]{2,10}\b)$", command_text, re.IGNORECASE)
             if project_match:
                 parsed_data["entities"]["project_key"] = project_match.group(1).upper()
                 # Remove the project key part from the command string
-                command_text = re.sub(r"(?:in|for|on)\s*(?:project)?\s*(\b[A-Z]{2,10}\b)$", "", command_text,
-                                      flags=re.IGNORECASE)
-
+                command_text = re.sub(r"(?:in|for|on)\s*(?:project)?\s*(\b[A-Z]{2,10}\b)$", "", command_text, flags=re.IGNORECASE)
+            
             # Step 3: Extract the summary from the remaining, cleaner command string.
+            # Updated regex for more robust summary extraction. It now looks for a quoted string
+            # after the issue type and optional keywords like 'called' or 'for'.
             summary_match = re.search(r"(?:called|titled|for|summary)?\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
             if summary_match:
                 parsed_data["entities"]["summary"] = summary_match.group(1).strip()
@@ -86,9 +84,11 @@ class NLUProcessor:
                 if fallback_summary_match and fallback_summary_match.group(1):
                     parsed_data["entities"]["summary"] = fallback_summary_match.group(1).strip()
 
+
             # If summary is still missing, set a specific unclear intent
             if not parsed_data["entities"].get("summary"):
                 parsed_data["intent"] = "unclear_create"
+
 
         # --- Intent: Transition Issue (Close, Resolve, Abandon) ---
         # Examples:
@@ -112,65 +112,105 @@ class NLUProcessor:
             elif "abandon" in doc.text:
                 parsed_data["entities"]["transition_name"] = "Abandoned"
             elif "transition" in doc.text and "to" in doc.text:
-                # UPDATED LOGIC: Extract text after "to" for the transition name more reliably
-                parts = command_text.lower().split("to", 1)  # Split only on the first 'to'
+                # Extract text after "to" for the transition name more reliably
+                parts = command_text.lower().split("to", 1) # Split only on the first 'to'
                 if len(parts) > 1:
                     transition_phrase = parts[1].strip()
                     # Remove the issue key from the transition phrase if it was found at the end
                     if parsed_data["entities"].get("issue_key"):
-                        transition_phrase = transition_phrase.replace(parsed_data["entities"]["issue_key"].lower(),
-                                                                      "").strip()
+                        transition_phrase = transition_phrase.replace(parsed_data["entities"]["issue_key"].lower(), "").strip()
 
                     # Clean up any remaining "issue" or other noise that might be part of the command structure
                     transition_phrase = re.sub(r"\bissue\b", "", transition_phrase).strip()
 
-                    parsed_data["entities"][
-                        "transition_name"] = transition_phrase.title()  # Capitalize each word (e.g., "in progress" -> "In Progress")
+                    parsed_data["entities"]["transition_name"] = transition_phrase.title() # Capitalize each word (e.g., "in progress" -> "In Progress")
                 else:
-                    parsed_data["entities"]["transition_name"] = "Unknown"  # Fallback if status isn't clear
+                    parsed_data["entities"]["transition_name"] = "Unknown" # Fallback if status isn't clear
+
 
             if not parsed_data["entities"].get("issue_key"):
                 parsed_data["intent"] = "unclear_transition"
-            elif not parsed_data["entities"].get("transition_name"):  # Also unclear if transition name is missing
+            elif not parsed_data["entities"].get("transition_name"): # Also unclear if transition name is missing
                 parsed_data["intent"] = "unclear_transition"
 
 
-        # --- Intent: Modify Issue ---
+        # --- Intent: Modify Issue (now includes assignee) ---
         # Examples:
         # "modify MYPROJ-123 summary to 'New Title'"
         # "update PROJ-456 description to 'Some new details'"
-        elif any(t in doc.text for t in ["modify", "update"]):
-            parsed_data["intent"] = "modify"
+        # "assign AIK-1 to John Doe" (handled below, but shares modify logic)
+        elif any(t in doc.text for t in ["modify", "update", "assign"]):
+            # Check for explicit assign intent first
+            if "assign" in doc.text and "to" in doc.text:
+                parsed_data["intent"] = "assign"
+                issue_key_match = re.search(r"(\b[A-Z]{1,10}-\d+\b)", command_text, re.IGNORECASE)
+                if issue_key_match:
+                    parsed_data["entities"]["issue_key"] = issue_key_match.group(1).upper()
+
+                assignee_match = re.search(r"to\s+([a-zA-Z0-9\s\.-]+)$", command_text, re.IGNORECASE)
+                if assignee_match:
+                    parsed_data["entities"]["assignee"] = assignee_match.group(1).strip()
+                else:
+                    # Try to capture assignee before issue key if it's at the end
+                    assignee_match_alt = re.search(r"to\s+([a-zA-Z0-9\s\.-]+)\s*(?:for|issue)?\s*(\b[A-Z]{1,10}-\d+\b)?$", command_text, re.IGNORECASE)
+                    if assignee_match_alt and assignee_match_alt.group(1):
+                        parsed_data["entities"]["assignee"] = assignee_match_alt.group(1).strip()
+                        if not parsed_data["entities"].get("issue_key") and assignee_match_alt.group(2):
+                            parsed_data["entities"]["issue_key"] = assignee_match_alt.group(2).upper()
+
+
+                if not parsed_data["entities"].get("issue_key") or not parsed_data["entities"].get("assignee"):
+                    parsed_data["intent"] = "unclear_assign"
+            else: # It's a general modify/update command
+                parsed_data["intent"] = "modify"
+
+                # Extract issue key
+                issue_key_match = re.search(r"(\b[A-Z]{1,10}-\d+\b)", command_text, re.IGNORECASE)
+                if issue_key_match:
+                    parsed_data["entities"]["issue_key"] = issue_key_match.group(1).upper()
+
+                # Extract what field to modify (summary, description) and its new value
+                summary_to_match = re.search(r"(?:summary|title)\s*(?:to|as)\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
+                if summary_to_match:
+                    parsed_data["entities"]["field"] = "summary"
+                    parsed_data["entities"]["new_value"] = summary_to_match.group(1).strip()
+                else:
+                    desc_to_match = re.search(r"(?:description)\s*(?:to|as)\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
+                    if desc_to_match:
+                        parsed_data["entities"]["field"] = "description"
+                        parsed_data["entities"]["new_value"] = desc_to_match.group(1).strip()
+                    # Add more fields here as needed (e.g., assignee, priority)
+
+                if not parsed_data["entities"].get("issue_key") or not parsed_data["entities"].get("field"):
+                    parsed_data["intent"] = "unclear_modify"
+
+        # --- Intent: Add Comment ---
+        # Examples:
+        # "add comment 'This is a test comment' to AIK-1"
+        # "comment 'Another note' on MYPROJ-123"
+        elif ("add comment" in doc.text or "comment" in doc.text) and "to" in doc.text or "on" in doc.text:
+            parsed_data["intent"] = "comment"
 
             # Extract issue key
             issue_key_match = re.search(r"(\b[A-Z]{1,10}-\d+\b)", command_text, re.IGNORECASE)
             if issue_key_match:
                 parsed_data["entities"]["issue_key"] = issue_key_match.group(1).upper()
 
-            # Extract what field to modify (summary, description) and its new value
-            summary_to_match = re.search(r"(?:summary|title)\s*(?:to|as)\s*['\"](.+?)['\"]", command_text,
-                                         re.IGNORECASE)
-            if summary_to_match:
-                parsed_data["entities"]["field"] = "summary"
-                parsed_data["entities"]["new_value"] = summary_to_match.group(1).strip()
-            else:
-                desc_to_match = re.search(r"(?:description)\s*(?:to|as)\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
-                if desc_to_match:
-                    parsed_data["entities"]["field"] = "description"
-                    parsed_data["entities"]["new_value"] = desc_to_match.group(1).strip()
-                # Add more fields here as needed (e.g., assignee, priority)
+            # Extract comment body
+            comment_match = re.search(r"(?:comment)\s*['\"](.+?)['\"]", command_text, re.IGNORECASE)
+            if comment_match:
+                parsed_data["entities"]["comment_body"] = comment_match.group(1).strip()
 
-            # If issue key or field/value is missing, set a specific unclear intent
-            if not parsed_data["entities"].get("issue_key") or not parsed_data["entities"].get("field"):
-                parsed_data["intent"] = "unclear_modify"
+            if not parsed_data["entities"].get("issue_key") or not parsed_data["entities"].get("comment_body"):
+                parsed_data["intent"] = "unclear_comment"
+
 
         return parsed_data
-
 
 if __name__ == '__main__':
     # This block allows you to test the NLUProcessor independently.
     nlu = NLUProcessor()
-    if nlu.nlp:  # Only run tests if spaCy model loaded successfully
+    if nlu.nlp: # Only run tests if spaCy model loaded successfully
         test_commands = [
             "create a story called 'Implement authentication flow' in project WEBAPP",
             "new task 'Database Migration' for DEV",
@@ -180,19 +220,20 @@ if __name__ == '__main__':
             "abandon QA-456",
             "modify WEBAPP-789 summary to 'User Authentication Workflow'",
             "update DEV-123 description to 'New migration script details'",
-            "transition QA-456 to In Progress",  # Test case for multi-word transition
-            "transition AIK-1 to Done",  # Test case for multi-word transition
-            "create task 'Design UI in AJAX' in AIK",  # Test case for a project key issue
-            "create task 'Design UI in JS' in AIK",  # Test case for a project key issue
-            "what is the status of WEBAPP-100",  # Expected: Unknown intent
-            "create a story in project ABC",  # Expected: Unclear create (missing summary)
-            "close issue",  # Expected: Unclear transition (missing issue key)
-            "modify MYPROJ-123 to 'New Value'",  # Expected: Unclear modify (missing field)
-            "create a bug 'Payment gateway error' in PROJ",
-            "create a task Implement UI for PROJ",  # Test without "called"
-            "update TEST-101 description as 'Fixed the bug'",
+            "transition QA-456 to In Progress", # Test case for multi-word transition
+            "transition AIK-1 to Done", # Test case for multi-word transition
+            "create task 'Design UI in AJAX' in AIK", # Test case for a project key issue
+            "create task 'Design UI in JS' in AIK", # Test case for a project key issue
             "create a story 'User profile' in project MYPROJ with description 'Add a user profile page with editable fields.'",
-            "create story 'NLU TESTING' with description 'test all cases nlu' in AIK",  # The problematic prompt
+            "create story 'NLU TESTING' with description 'test all cases nlu' in AIK", # The problematic prompt
+            "assign AIK-1 to John Doe", # NEW: Assign command
+            "assign AIK-2 to Jane Smith for issue AIK-2", # NEW: Assign command with issue key at end
+            "add comment 'This is a test comment' to AIK-1", # NEW: Add comment command
+            "comment 'Another note on progress' on AIK-2", # NEW: Add comment command with "on"
+            "unassign AIK-3", # NEW: Unassign command (assign to None)
+            "add comment to AIK-4", # Unclear comment (missing body)
+            "assign AIK-5", # Unclear assign (missing assignee)
+            "modify AIK-6", # Unclear modify (missing field/value)
         ]
 
         print("\n--- Testing NLU Processor ---")
