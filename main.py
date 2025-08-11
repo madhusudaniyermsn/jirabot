@@ -50,7 +50,6 @@ def main():
 
                 if project_key and summary:
                     print(f"Attempting to create {issue_type} '{summary}' in project '{project_key}'...")
-                    # CORRECTED: Only pass the extracted description.
                     jira_service.create_issue(
                         project_key,
                         summary,
@@ -72,7 +71,30 @@ def main():
                     print("Error: For 'transition' command, please specify an 'issue key' and a 'transition name'.")
                     print("Example: `close MYPROJ-123` or `resolve PROJ-456`")
 
-            # --- Handle 'modify' intent ---
+            # --- Handle 'assign' intent ---
+            elif intent == "assign":
+                issue_key = entities.get("issue_key")
+                assignee = entities.get("assignee")
+                if issue_key and assignee:
+                    print(f"Attempting to assign issue '{issue_key}' to '{assignee}'...")
+                    jira_service.update_issue(issue_key, assignee=assignee)
+                else:
+                    print("Error: For 'assign' command, please specify an 'issue key' and an 'assignee'.")
+                    print("Example: `assign AIK-1 to John Doe` or `unassign AIK-2`")
+
+            # --- Handle 'comment' intent ---
+            elif intent == "comment":
+                issue_key = entities.get("issue_key")
+                comment_body = entities.get("comment_body")
+                if issue_key and comment_body:
+                    print(f"Attempting to add comment to issue '{issue_key}'...")
+                    jira_service.add_comment(issue_key, comment_body)
+                else:
+                    print("Error: For 'comment' command, please specify an 'issue key' and a 'comment body'.")
+                    print("Example: `add comment 'This is important' to AIK-1`")
+
+
+            # --- Handle 'modify' intent (general updates) ---
             elif intent == "modify":
                 issue_key = entities.get("issue_key")
                 field = entities.get("field")
@@ -105,10 +127,18 @@ def main():
                 print("Please provide an issue key and what to modify (e.g., summary, description) with its new value.")
                 print("Example: `modify MYPROJ-123 summary to 'New Title'`")
 
+            elif intent == "unclear_assign":
+                print("Error: I understood you want to assign an issue, but the command is incomplete or unclear.")
+                print("Please provide an issue key and an assignee name. Example: `assign AIK-1 to John Doe`")
+
+            elif intent == "unclear_comment":
+                print("Error: I understood you want to add a comment, but the command is incomplete or unclear.")
+                print("Please provide an issue key and the comment text. Example: `add comment 'This is a note' to AIK-1`")
+
             # --- Handle completely unknown commands ---
             else:
                 print(f"Sorry, I didn't understand the command: '{command}'.")
-                print("Please try a command like 'create a story...', 'close MYPROJ-123', or 'modify MYPROJ-123 summary to...'")
+                print("Please try a command like 'create a story...', 'close MYPROJ-123', 'assign AIK-1 to John', or 'add comment 'Hello' to AIK-2'.")
 
         except Exception as e:
             # Catch any unexpected errors during command processing
