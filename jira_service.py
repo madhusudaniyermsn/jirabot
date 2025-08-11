@@ -1,24 +1,25 @@
 from jira import JIRA
-from jira.exceptions import JIRAError # Import JiraError for specific exception handling
+from jira.exceptions import JIRAError # Corrected: Import JIRAError (all caps) for specific exception handling
 from config import JiraConfig # Import the configuration
 
 class JiraService:
     """
     Handles all interactions with the Jira API.
-    Encapsulates creation, modification, and transition of issues.
+    Encapsulates creation, modification, and transition of issues,
+    and now supports assigning and adding comments.
     """
     def __init__(self):
         """
         Initializes the JiraService by loading configuration and connecting to Jira.
         """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
         JiraConfig.validate() # Validate configuration before attempting connection
         self.jira_client = None # Initialize client to None
         try:
-            # Corrected: Pass server URL directly to the 'server' parameter
+            # Pass server URL directly to the 'server' parameter
             self.jira_client = JIRA(server=JiraConfig.JIRA_URL, basic_auth=(JiraConfig.JIRA_USERNAME, JiraConfig.JIRA_API_TOKEN))
             print("Connected to Jira successfully.")
-        except JiraError as e: # Catch specific JiraError for connection issues
-            # Catch any exceptions during connection and print an informative error
+        except JIRAError as e: # Catch specific JIRAError
             print(f"Failed to connect to Jira: {e}")
             print("Please check your JIRA_URL, JIRA_USERNAME, and JIRA_API_TOKEN in the config.py file.")
         except Exception as e: # Catch any other unexpected exceptions
@@ -46,6 +47,7 @@ class JiraService:
         :param issue_type: The type of issue (e.g., "Story", "Task", "Bug", "Defect"). Defaults to "Story".
         :return: The created Jira issue object if successful, None otherwise.
         """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
         if not self._is_connected():
             return None
 
@@ -59,7 +61,7 @@ class JiraService:
             new_issue = self.jira_client.create_issue(fields=issue_dict)
             print(f"Successfully created issue: {new_issue.key} - '{new_issue.fields.summary}'")
             return new_issue
-        except JiraError as e: # Specific exception for Jira API errors
+        except JIRAError as e: # Specific exception for Jira API errors
             print(f"Jira API Error creating issue in project '{project_key}': {e}")
             return None
         except Exception as e:
@@ -70,14 +72,15 @@ class JiraService:
         """
         Retrieves a Jira issue by its unique key.
         :param issue_key: The key of the issue to retrieve (e.g., "MYPROJ-123").
-        :return: The Jira issue object if found, None otherwise.
+        :return: The Jira issue object or None if not found/error.
         """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
         if not self._is_connected():
             return None
         try:
             issue = self.jira_client.issue(issue_key)
             return issue
-        except JiraError as e:
+        except JIRAError as e: # Specific exception for Jira API errors
             # This error is often for "Issue Does Not Exist", so we'll handle it quietly
             # and let the calling function decide how to report "not found".
             # print(f"Jira API Error getting issue '{issue_key}': {e}")
@@ -91,10 +94,11 @@ class JiraService:
         Updates specific fields of an existing Jira issue.
         :param issue_key: The key of the issue to update.
         :param kwargs: Keyword arguments representing the fields to update.
-                       Supported fields: 'summary', 'description'.
-                       For assignee, pass 'assignee': 'username' (Jira will try to resolve).
-        :return: True if the update was successful, False otherwise.
+                       Supported fields: 'summary', 'description', 'assignee'.
+                       For assignee, pass 'assignee': 'username' (Jira will try to resolve by display name).
+        :return: True on success, False on error.
         """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
         if not self._is_connected():
             return False
 
@@ -104,14 +108,18 @@ class JiraService:
             return False
 
         fields_to_update = {}
-        if 'summary' in kwargs and kwargs['summary']:
+        if 'summary' in kwargs and kwargs['summary'] is not None:
             fields_to_update['summary'] = kwargs['summary']
-        if 'description' in kwargs and kwargs['description']:
+        if 'description' in kwargs and kwargs['description'] is not None:
             fields_to_update['description'] = kwargs['description']
-        if 'assignee' in kwargs and kwargs['assignee']:
-            # Note: Assignee can be tricky. Jira's API often prefers accountId.
+        if 'assignee' in kwargs and kwargs['assignee'] is not None:
+            # Assignee can be tricky. Jira's API often prefers accountId.
             # This attempts to assign by name, which might require exact matching or user lookup.
-            fields_to_update['assignee'] = {'name': kwargs['assignee']}
+            # If the assignee is None (e.g., for unassigning), pass an empty dict or None
+            if kwargs['assignee'].lower() == "unassigned" or kwargs['assignee'] == "":
+                fields_to_update['assignee'] = {'name': None} # Or None directly, depending on Jira version
+            else:
+                fields_to_update['assignee'] = {'name': kwargs['assignee']}
 
         if not fields_to_update:
             print(f"No valid fields provided to update for issue '{issue_key}'.")
@@ -121,7 +129,7 @@ class JiraService:
             issue.update(fields=fields_to_update)
             print(f"Successfully updated issue: {issue_key}")
             return True
-        except JiraError as e: # Specific exception for Jira API errors
+        except JIRAError as e: # Specific exception for Jira API errors
             print(f"Jira API Error updating issue '{issue_key}': {e}")
             return False
         except Exception as e:
@@ -134,8 +142,9 @@ class JiraService:
         :param issue_key: The key of the issue to transition.
         :param transition_name: The name of the desired transition (e.g., "Done", "Resolved", "Closed", "Abandoned").
                                 This must match a valid transition in your Jira workflow.
-        :return: True if the transition was successful, False otherwise.
+        :return: True on success, False on error.
         """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
         if not self._is_connected():
             return None
 
@@ -157,7 +166,7 @@ class JiraService:
                 self.jira_client.transition_issue(issue, transition_id)
                 print(f"Successfully transitioned issue '{issue_key}' to '{transition_name}'.")
                 return True
-            except JiraError as e: # Specific exception for Jira API errors
+            except JIRAError as e: # Specific exception for Jira API errors
                 print(f"Jira API Error transitioning issue '{issue_key}' to '{transition_name}': {e}")
                 return False
             except Exception as e:
@@ -172,11 +181,42 @@ class JiraService:
                 print("No transitions available for this issue (check Jira workflow permissions).")
             return False
 
+    def add_comment(self, issue_key: str, comment_body: str):
+        """
+        Adds a comment to a specified Jira issue.
+        :param issue_key: The key of the issue to add the comment to.
+        :param comment_body: The text content of the comment.
+        :return: True on success, False on error.
+        """
+        from jira.exceptions import JIRAError # Import is moved here for robustness
+        if not self._is_connected():
+            return False
+
+        issue = self.get_issue(issue_key)
+        if not issue:
+            print(f"Issue '{issue_key}' not found or inaccessible for commenting.")
+            return False
+
+        if not comment_body.strip():
+            print("Comment body cannot be empty.")
+            return False
+
+        try:
+            self.jira_client.add_comment(issue, comment_body)
+            print(f"Successfully added comment to issue: {issue_key}")
+            return True
+        except JIRAError as e: # Specific exception for Jira API errors
+            print(f"Jira API Error adding comment to issue '{issue_key}': {e}")
+            return False
+        except Exception as e:
+            print(f"An unexpected error occurred while adding comment to issue: {e}")
+            return False
+
 if __name__ == '__main__':
     # This block provides a way to test the JiraService independently.
     # Uncomment and replace placeholders with your actual Jira project key and issue keys.
     jira_service = JiraService()
-    # Corrected: Check if jira_client is initialized directly to avoid protected member warning
+    # Check if jira_client is initialized directly to avoid protected member warning
     if jira_service.jira_client: # Check if the client object exists
         print("\nJiraService is connected. You can uncomment the lines below to test operations.")
 
@@ -185,7 +225,13 @@ if __name__ == '__main__':
         # if new_issue:
         #     print(f"Created test issue: {new_issue.key}")
 
-        #     # Example: Update the test issue
+        #     # Example: Assign the test issue
+        #     # jira_service.update_issue(new_issue.key, assignee="your_jira_username")
+
+        #     # Example: Add a comment to the test issue
+        #     # jira_service.add_comment(new_issue.key, "This is a test comment from the script.")
+
+        #     # Example: Update the test issue summary
         #     # jira_service.update_issue(new_issue.key, summary="Updated Test Summary", description="New detailed description.")
 
         #     # Example: Transition the test issue
@@ -195,6 +241,9 @@ if __name__ == '__main__':
         # else:
         #     print("Could not create test issue (check project key and permissions).")
 
-        # Example: Try to transition a known issue (replace "EXISTING-123" with an actual issue key from your Jira)
-        # jira_service.transition_issue("EXISTING-123", "Closed") # Ensure "Closed" is a valid transition for EXISTING-123
+        # Example: Try to assign a known issue (replace "EXISTING-123" and "username")
+        # jira_service.update_issue("EXISTING-123", assignee="your_jira_username")
+
+        # Example: Try to add a comment to a known issue (replace "EXISTING-123")
+        # jira_service.add_comment("EXISTING-123", "This is a direct test comment.")
         pass
